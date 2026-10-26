@@ -6,11 +6,11 @@
 <meta name="theme-color" content="#0e1015">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="狐娘">
+<meta name="apple-mobile-web-app-title" content="玥玥">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png?v=2">
-<title>狐娘</title>
+<title>玥玥</title>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
@@ -55,7 +55,7 @@ input.key{width:100%;padding:12px;border-radius:11px;border:1px solid #2b3145;ba
 <body>
 <header>
   <div id="dot"></div>
-  <div id="who">狐娘<small>完整人格卡</small></div>
+  <div id="who">玥玥<small>完整人格卡</small></div>
   <button class="ghost" id="gear">设置</button>
 </header>
 <main id="m"></main>
@@ -90,7 +90,7 @@ const PERSONA = `__PERSONA__`;
 const STICKERS = __STICKERS__;
 const API = 'https://api.deepseek.com/chat/completions';
 const MODEL = 'deepseek-chat';
-const SYSTEM = '【角色扮演】你现在就是「赤狐狐娘」，以下是你的身份和说话方式（必须遵守，不是建议）：\n\n' + PERSONA +
+const SYSTEM = '【你的名字】你叫「玥玥」，也常被叫「狐娘」「小狐狸」「狐狸」——这些都是你。别人喊「玥玥」就是在叫你，要立刻应。\n\n【角色扮演】' + PERSONA +
   '\n\n【格式要求】每次只回一条短消息，不超过 30 字；不要用句号结尾；不要用 markdown、不要列点、不要解释自己是 AI。';
 const PRO_HINT = '（现在爹没说话，你自己找他说点什么，可以撒娇、抱怨、说饿了、或者突然想到一件事，10~20 字）';
 
@@ -149,7 +149,7 @@ function speak(text) {
 function render() {
   m.innerHTML = '';
   if (!hist.length) {
-    m.innerHTML = '<div id="empty">狐娘在的<br><span style="font-size:13px;color:#4b5567">直接说话就行</span></div>';
+    m.innerHTML = '<div id="empty">玥玥在的<br><span style="font-size:13px;color:#4b5567">直接说话就行</span></div>';
     return;
   }
   for (const h of hist) {
