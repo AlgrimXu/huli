@@ -258,6 +258,7 @@ setInterval(async () => {
 
 render();
 if (!KEY) $('#setup').style.display = 'flex';
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(()=>{}); }
 </script>
 </body>
 </html>
