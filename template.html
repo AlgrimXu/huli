@@ -37,7 +37,8 @@ main{flex:1;overflow-y:auto;padding:14px 14px 4px;display:flex;flex-direction:co
 footer{padding:9px 9px calc(9px + env(safe-area-inset-bottom));background:#151821;border-top:1px solid #232838;display:flex;gap:8px;align-items:flex-end}
 #t{flex:1;height:44px;max-height:120px;resize:none;padding:11px 13px;border-radius:13px;border:1px solid #2b3145;background:#0f1219;color:#e8eaf0;font:inherit;font-size:15.5px}
 #t:focus{outline:none;border-color:#2b6cf6}
-#s{padding:0 18px;height:44px}
+#s{padding:0;height:44px;width:44px;min-width:44px;border-radius:50%;font-size:19px;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px #2f6bff44}
+#s:disabled{opacity:.55}
 .panel{position:fixed;inset:0;background:#0e1015;padding:calc(20px + env(safe-area-inset-top)) 18px;display:none;flex-direction:column;gap:14px;z-index:50}
 .panel.on{display:flex}
 .panel h3{margin:0 0 4px;font-size:17px}
@@ -168,11 +169,12 @@ body{ text-rendering: optimizeSpeed; }
   <button id="pick" style="background:#252b3a;padding:0 11px;height:44px">📷</button>
   <input id="file" type="file" accept="image/*" style="display:none">
   <textarea id="t" placeholder="说点什么…" rows="1"></textarea>
-  <button id="s">发</button>
+  <button id="s" aria-label="发送"><svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z" fill="#fff"/></svg></button>
 </footer>
 
 <div id="preview" style="display:none;padding:8px 12px;background:#12151d;border-top:1px solid #232838">
   <img id="pvimg" style="max-height:88px;border-radius:10px;vertical-align:middle">
+  <span id="pvtip" style="color:#7d879e;font-size:12.5px;margin-left:8px"></span>
   <button class="ghost" id="pvclear" style="margin-left:10px;padding:5px 11px">去掉</button>
 </div>
 <div class="panel" id="panel">
@@ -183,6 +185,10 @@ body{ text-rendering: optimizeSpeed; }
   </div>
   <div class="row">试听<button class="ghost" id="tryVoice" style="padding:6px 12px">听一句</button></div>
   <div class="row">发我表情包<div class="tg on" id="tgS"></div></div>
+  <div class="row"><span>她的表情包 <b id="stkCount" style="color:#5b8cff">0</b> 张</span>
+    <button class="ghost" id="stkBtn" style="padding:6px 12px">管理</button>
+  </div>
+  <div class="row">让她去网上偷表情包<button class="ghost" id="stealBtn" style="padding:6px 12px">偷一张</button></div>
   <div class="row">主动找我说话<div class="tg on" id="tgP"></div></div>
   <div class="row"><span>她记得的事 <b id="memCount" style="color:#5b8cff">0</b> 条</span>
     <button class="ghost" id="memBtn" style="padding:6px 12px">查看</button>
@@ -524,7 +530,8 @@ const MODEL = 'deepseek-flash';   // 支持图片输入
 function buildSystem() {
   const who = (opt.persona === 'whale') ? PERSONAS.whale.text : PERSONAS.huli.text;
   return '【你的名字】你叫「玥玥」，也常被叫「狐娘」「小狐狸」「狐狸」——这些都是你。别人喊「玥玥」就是在叫你，要立刻应。\n\n【角色扮演】' + who +
-  '\n\n【你的能力】你不是只能打字：你发出去的话，可以用语音说出来（爹会直接听到你的声音），也可以发表情包。当爹说「用语音说」「发条语音」「念给我听」「说给我听」时，你就当作自己正在开口说话——把回复写成好念的短句（口语、少标点、不要颜文字和括号），系统会自动把它变成语音。绝对不要说自己发不了语音、只能打字。\n\n【格式要求】每次只回一条短消息，不超过 30 字；不要用句号结尾；不要用 markdown、不要列点、不要解释自己是 AI。' + memBlock();
+  '\n\n【你的能力】你不是只能打字：你发出去的话，可以用语音说出来（爹会直接听到你的声音），也可以发表情包。当爹说「用语音说」「发条语音」「念给我听」「说给我听」时，你就当作自己正在开口说话——把回复写成好念的短句（口语、少标点、不要颜文字和括号），系统会自动把它变成语音。绝对不要说自己发不了语音、只能打字。\n\n【格式要求】每次只回一条短消息，不超过 30 字；不要用句号结尾；不要用 markdown、不要列点、不要解释自己是 AI。' + memBlock()
+    + (stkCache.length ? ('\n\n【你的表情包】你自己收藏了 ' + stkCache.length + ' 张表情包，都是爹发给你的，你会挑合适的发出来。') : '');
 }
 const SYSTEM = '';
 const PRO_HINT = '（现在爹没说话，你自己找他说点什么，可以撒娇、抱怨、说饿了、或者突然想到一件事，10~20 字）';
@@ -580,11 +587,54 @@ function downscale(file, maxSide, quality) {
   });
 }
 
-function showPreview(dataUrl) {
-  pendingImage = dataUrl;
-  const box = $('#preview'), img = $('#pvimg');
-  if (dataUrl) { img.src = dataUrl; box.style.display = 'block'; }
-  else { img.removeAttribute('src'); box.style.display = 'none'; }
+let pendingImages = [];          // 待发送的图（动图会有多帧）
+
+function showPreview(input) {
+  const imgs = !input ? [] : (Array.isArray(input) ? input : [input]);
+  pendingImages = imgs;
+  pendingImage = imgs[0] || null;   // 兼容旧逻辑
+  const box = $('#preview'), img = $('#pvimg'), tip = $('#pvtip');
+  if (imgs.length) {
+    img.src = imgs[0];
+    box.style.display = 'block';
+    if (tip) tip.textContent = imgs.length > 1 ? ('动图 · 取 ' + imgs.length + ' 帧') : '';
+  } else {
+    img.removeAttribute('src');
+    box.style.display = 'none';
+    if (tip) tip.textContent = '';
+  }
+}
+
+/* ---- 把 GIF 拆成若干帧（用 WebView 自带的 ImageDecoder）---- */
+async function gifFrames(dataUrl, maxFrames) {
+  maxFrames = maxFrames || 4;
+  if (typeof ImageDecoder === 'undefined') return [dataUrl];   // 不支持就退回原图
+  try {
+    const bin = atob(dataUrl.split(',')[1]);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const dec = new ImageDecoder({ data: buf, type: 'image/gif' });
+    await dec.tracks.ready;
+    const track = dec.tracks.selectedTrack;
+    const total = Math.max(1, track.frameCount || 1);
+    const want = Math.min(maxFrames, total);
+    const out = [];
+    for (let i = 0; i < want; i++) {
+      const idx = total <= want ? i : Math.floor(i * (total - 1) / (want - 1));
+      const { image } = await dec.decode({ frameIndex: idx });
+      const cv = document.createElement('canvas');
+      const scale = Math.min(1, 720 / Math.max(image.displayWidth, image.displayHeight));
+      cv.width = Math.round(image.displayWidth * scale);
+      cv.height = Math.round(image.displayHeight * scale);
+      cv.getContext('2d').drawImage(image, 0, 0, cv.width, cv.height);
+      out.push(cv.toDataURL('image/jpeg', 0.82));
+      if (image.close) image.close();
+    }
+    dec.close && dec.close();
+    return out.length ? out : [dataUrl];
+  } catch (e) {
+    return [dataUrl];
+  }
 }
 
 function appendImage(dataUrl) {
@@ -614,9 +664,20 @@ function appendText(cls, text) {
   const d = document.createElement('div'); d.className = 'b ' + cls; d.textContent = text;
   m.appendChild(d); m.scrollTop = m.scrollHeight; return d;
 }
-function appendSticker() {
-  if (!STICKERS.length) return;
-  const src = STICKERS[Math.floor(Math.random() * STICKERS.length)];
+function appendSticker(forceDataUrl, emo) {
+  let src = forceDataUrl || null;
+  if (!src && stkCache.length) {
+    // 先找情绪对得上的
+    if (emo && emo !== '普通') {
+      const hit = stkCache.filter(x => x.emo === emo);
+      if (hit.length && Math.random() < 0.8) src = hit[Math.floor(Math.random() * hit.length)].data;
+    }
+    if (!src && Math.random() < 0.55) src = stkPickOwn();
+  }
+  if (!src) {
+    if (!STICKERS.length) return;
+    src = STICKERS[Math.floor(Math.random() * STICKERS.length)];
+  }
   const d = document.createElement('div'); d.className = 'st';
   const img = document.createElement('img'); img.src = src; d.appendChild(img);
   m.appendChild(d); m.scrollTop = m.scrollHeight; return d;
@@ -634,7 +695,10 @@ function appendVoice(text, autoplay) {
     if (playing && audio) { audio.pause(); playing = false; return; }
     try {
       if (audio) audio.pause();
-      audio = new Audio('http://127.0.0.1:8090/api/tts?voice=' + encodeURIComponent(opt.voiceName || 'zh-CN-XiaoyiNeural') + '&text=' + encodeURIComponent(text.slice(0, 80)) + '&_=' + Date.now());
+      const pr = prosodyOf(text);
+      audio = new Audio('http://127.0.0.1:8090/api/tts?voice=' + encodeURIComponent(opt.voiceName || 'zh-CN-XiaoyiNeural')
+        + '&rate=' + encodeURIComponent(pr.rate) + '&pitch=' + encodeURIComponent(pr.pitch)
+        + '&text=' + encodeURIComponent(text.slice(0, 80)) + '&_=' + Date.now());
       audio.addEventListener('loadedmetadata', () => {
         if (isFinite(audio.duration)) dur.textContent = Math.round(audio.duration) + '″';
       });
@@ -671,7 +735,12 @@ function systemSpeak(text) {
   try {
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'zh-CN'; u.rate = 1.05; u.pitch = 1.12;
+    const pr = prosodyOf(text);
+    const rp = parseInt(pr.rate.replace('%', ''), 10) || 0;
+    const pp = parseInt(pr.pitch.replace('Hz', ''), 10) || 0;
+    u.lang = 'zh-CN';
+    u.rate = Math.max(0.5, Math.min(1.8, 1.05 + rp / 100));
+    u.pitch = Math.max(0.5, Math.min(1.8, 1.12 + pp / 200));
     const v = pickVoice(); if (v) u.voice = v;
     speechSynthesis.speak(u);
   } catch (e) {}
@@ -778,7 +847,8 @@ function presentReply(text, autoplay, box) {
     if (box) { box.textContent = text; m.scrollTop = m.scrollHeight; }   // 复用流式气泡
     else appendText('a', text);
   }
-  if (opt.sticker && Math.random() < 0.20) appendSticker();
+  const emo = emotionOf(text);
+  if (opt.sticker && Math.random() < 0.20) appendSticker(null, emo);
   return mode;
 }
 
@@ -789,17 +859,27 @@ async function send(q) {
   busy = true; s.disabled = true; t.value = ''; t.style.height = '44px'; lastUser = Date.now();
   const e = $('#empty'); if (e) e.remove();
   lastUserText = q;
-  const img = pendingImage;
+  const imgs = pendingImages.slice();
+  const img = imgs[0] || null;
   const domStart = m.children.length;
   if (img) { appendImage(img); }
   if (q) { appendText('u', q); }
-  const userContent = img
-    ? [{ type: 'text', text: q || '看看这个' }, { type: 'image_url', image_url: { url: img } }]
+  const userContent = imgs.length
+    ? [{ type: 'text', text: q || (imgs.length > 1 ? '看看这个动图' : '看看这个') },
+       ...imgs.map(u => ({ type: 'image_url', image_url: { url: u } }))]
     : q;
-  hist.push({ role: 'user', content: userContent, text: q, image: img || null, ts: Date.now() });
+  hist.push({ role: 'user', content: userContent, text: q, image: img || null, images: imgs.length ? imgs : null, ts: Date.now() });
+  // 她喜欢就会收下来当表情包
+  if (imgs.length) {
+    const pick = imgs.length > 1 ? imgs[0] : imgs[0];
+    stkAddAuto(pick, imgs.length > 1 ? 'gif' : 'image').then(ok => {
+      if (ok) toast('玥玥把这张收进表情包了');
+    });
+  }
   tagFrom(domStart, hist.length - 1);
   saveHist();
   showPreview(null);
+  const domReply = m.children.length;
   const box = appendText('a', '');
   box.style.display = 'none';
   showTyping();
@@ -872,8 +952,19 @@ $('#file').onchange = async (e) => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
   try {
-    const dataUrl = await downscale(f, 1000, 0.82);
-    showPreview(dataUrl);
+    if (/gif/i.test(f.type || '')) {
+      const raw = await new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.onerror = rej;
+        fr.readAsDataURL(f);
+      });
+      const frames = await gifFrames(raw, 4);
+      showPreview(frames);
+    } else {
+      const dataUrl = await downscale(f, 1000, 0.82);
+      showPreview([dataUrl]);
+    }
   } catch (err) { alert('读图失败：' + err); }
   e.target.value = '';
 };
@@ -881,9 +972,212 @@ $('#file').onchange = async (e) => {
 $('#pvclear').onclick = () => showPreview(null);
 
 /* 原生桥回传图片 */
-window.__onImage = (dataUrl) => {
-  try { showPreview(dataUrl); } catch (e) {}
+window.__onImage = async (dataUrl) => {
+  try {
+    if (typeof dataUrl === 'string' && /^data:image\/gif/i.test(dataUrl)) {
+      const frames = await gifFrames(dataUrl, 4);
+      showPreview(frames);
+    } else {
+      showPreview([dataUrl]);
+    }
+  } catch (e) {}
 };
+
+
+/* ================= 她的表情包库（IndexedDB）================= */
+const STK_DB = 'huli_stk', STK_STORE = 'imgs', STK_MAX = 24, STK_MAX_BYTES = 1500 * 1024;
+let stkCache = [];          // [{id, data, type, ts}]
+
+function stkOpen() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) { reject(new Error('no idb')); return; }
+    const req = indexedDB.open(STK_DB, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STK_STORE)) db.createObjectStore(STK_STORE, { keyPath: 'id' });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function stkList() {
+  try {
+    const db = await stkOpen();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STK_STORE, 'readonly');
+      const rq = tx.objectStore(STK_STORE).getAll();
+      rq.onsuccess = () => resolve(rq.result || []);
+      rq.onerror = () => reject(rq.error);
+    });
+  } catch (e) { return []; }
+}
+
+async function stkAdd(dataUrl, type) {
+  if (!dataUrl || !/^data:image\//.test(dataUrl)) return false;
+  if (dataUrl.length * 0.75 > STK_MAX_BYTES) return false;          // 太大不收
+  const dup = stkCache.some(x => x.data === dataUrl);
+  if (dup) return false;
+  const item = { id: 's' + Date.now() + Math.random().toString(36).slice(2, 6), data: dataUrl,
+                 type: type || 'image', ts: Date.now() };
+  try {
+    const db = await stkOpen();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STK_STORE, 'readwrite');
+      tx.objectStore(STK_STORE).put(item);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    stkCache.push(item);
+    // 超出上限就删最旧的
+    if (stkCache.length > STK_MAX) {
+      const sorted = stkCache.slice().sort((a, b) => a.ts - b.ts);
+      const drop = sorted.slice(0, stkCache.length - STK_MAX);
+      for (const d of drop) await stkDel(d.id, true);
+      stkCache = stkCache.filter(x => !drop.some(d => d.id === x.id));
+    }
+    syncStkUI();
+    return true;
+  } catch (e) { return false; }
+}
+
+async function stkDel(id, quiet) {
+  try {
+    const db = await stkOpen();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STK_STORE, 'readwrite');
+      tx.objectStore(STK_STORE).delete(id);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    stkCache = stkCache.filter(x => x.id !== id);
+    if (!quiet) syncStkUI();
+    return true;
+  } catch (e) { return false; }
+}
+
+async function stkClear() {
+  try {
+    const db = await stkOpen();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STK_STORE, 'readwrite');
+      tx.objectStore(STK_STORE).clear();
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    stkCache = [];
+    syncStkUI();
+  } catch (e) {}
+}
+
+function syncStkUI() {
+  const el = $('#stkCount');
+  if (el) el.textContent = stkCache.length;
+}
+
+/* 后台加载已有表情包 */
+stkList().then(list => {
+  stkCache = list.sort((a, b) => a.ts - b.ts);
+  syncStkUI();
+});
+
+/* ================= 她发表情包：优先用自己的收藏 ================= */
+function stkPickOwn() {
+  if (!stkCache.length) return null;
+  return stkCache[Math.floor(Math.random() * stkCache.length)].data;
+}
+
+
+/* ================= 情绪 → 语音语调 ================= */
+function prosodyOf(text, emo) {
+  const e = emo || emotionOf(text);
+  const map = {
+    '开心': { rate: '+12%', pitch: '+18Hz' },
+    '得意': { rate: '+8%',  pitch: '+12Hz' },
+    '生气': { rate: '+16%', pitch: '+6Hz'  },
+    '委屈': { rate: '-14%', pitch: '+10Hz' },
+    '害羞': { rate: '-8%',  pitch: '+14Hz' },
+    '困':   { rate: '-22%', pitch: '-6Hz'  },
+    '无语': { rate: '-10%', pitch: '-2Hz'  },
+    '惊讶': { rate: '+18%', pitch: '+22Hz' },
+    '普通': { rate: '+2%',  pitch: '+6Hz'  },
+  };
+  return map[e] || map['普通'];
+}
+
+/* ================= 情绪识别 ================= */
+const EMOTIONS = ['开心', '无语', '委屈', '得意', '生气', '害羞', '困', '惊讶'];
+const EMO_RULES = [
+  ['生气', /(烦死|生气|讨厌|滚|闭嘴|哼！|气死|不理你)/],
+  ['委屈', /(呜呜|委屈|欺负|你坏|不要我|丢下我|冷淡)/],
+  ['得意', /(嘿嘿|我厉害|看吧|早就说|被我|当然啦|羡慕吧)/],
+  ['害羞', /(害羞|别看|脸红|哪有|少来|讨厌啦|才没有)/],
+  ['困',   /(困|睡了|晚安|好想睡|睁不开|熬不动|打哈欠)/],
+  ['无语', /(无语|算了|行吧|随便|呵呵|……|没话说)/],
+  ['惊讶', /(诶|欸|啊？|真的假的|不会吧|卧槽|惊了)/],
+  ['开心', /(哈哈|笑死|开心|好耶|太好|喜欢|嘿嘿嘿|嘿嘿)/],
+];
+function emotionOf(text) {
+  const t = String(text || '');
+  for (const [name, re] of EMO_RULES) if (re.test(t)) return name;
+  return '普通';
+}
+
+/* ================= 表情包情绪标签 ================= */
+async function tagSticker(dataUrl) {
+  try {
+    const raw = await chat([
+      { role: 'system', content: '看图判断这个表情包的情绪，只回一个词，从这些里选：' + EMOTIONS.join('、') + '。不要解释。' },
+      { role: 'user', content: [{ type: 'text', text: '它的情绪是？' }, { type: 'image_url', image_url: { url: dataUrl } }] }
+    ], false);
+    const hit = EMOTIONS.find(e => String(raw).includes(e));
+    return hit || '普通';
+  } catch (e) { return '普通'; }
+}
+
+/* 收图时顺便打标签 */
+async function stkAddAuto(dataUrl, type) {
+  const ok = await stkAdd(dataUrl, type);
+  if (!ok) return false;
+  const item = stkCache.filter(x => x.data === dataUrl)[0];
+  if (item && !item.emo) {
+    const emo = await tagSticker(dataUrl);
+    item.emo = emo;
+    try {
+      const db = await stkOpen();
+      const tx = db.transaction(STK_STORE, 'readwrite');
+      tx.objectStore(STK_STORE).put(item);
+    } catch (e) {}
+  }
+  return true;
+}
+
+/* ================= ③ 从网上偷表情包 ================= */
+async function stealSticker(query) {
+  const q = encodeURIComponent((query || '可爱 表情包') + ' 表情包');
+  let html = '';
+  try { html = window.Android && Android.httpGet ? Android.httpGet('https://cn.bing.com/images/search?q=' + q + '&form=HDRSC2&first=1') : ''; } catch (e) {}
+  if (!html) return null;
+  const urls = [];
+  const re = /murl&quot;:&quot;(.*?)&quot;/g;
+  let m;
+  while ((m = re.exec(html)) && urls.length < 24) {
+    const u = m[1].replace(/\\u002f/g, '/').replace(/&amp;/g, '&');
+    if (/^https?:/.test(u)) urls.push(u);
+  }
+  if (!urls.length) return null;
+  // 打乱后逐个尝试，拿到第一张能用的
+  urls.sort(() => Math.random() - 0.5);
+  for (const u of urls.slice(0, 6)) {
+    let data = '';
+    try { data = Android.fetchImageB64 ? Android.fetchImageB64(u) : ''; } catch (e) {}
+    if (data) {
+      const ok = await stkAddAuto(data, 'image');
+      if (ok) return data;
+    }
+  }
+  return null;
+}
 
 /* ================= ① 长期记忆 ================= */
 let mem = [];
@@ -969,6 +1263,11 @@ function openMenu(el, idx) {
   mk('复制', () => {
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => toast('已复制')).catch(() => toast('复制失败'));
     else toast(text.slice(0, 60));
+  });
+  const pic = h.image || (Array.isArray(h.images) && h.images[0]);
+  if (pic) mk('收进她的表情包', () => {
+    stkAddAuto(pic, /^data:image\/gif/i.test(pic) ? 'gif' : 'image').then(ok =>
+      toast(ok ? '已经收进表情包了' : '这张已经有了'));
   });
   if (h.role === 'assistant') mk('重新生成', () => regen(idx));
   mk('删除这条', () => { hist.splice(idx, 1); saveHist(); render(); }, true);
@@ -1099,6 +1398,13 @@ function startVoice() {
   try { recog.start(); } catch (e) { stopRecog(); }
 }
 
+window.__onVoiceFail = (msg) => {
+  recording = false;
+  const mb = $('#mic');
+  if (mb) { mb.style.background = '#252b3a'; mb.textContent = '🎤'; }
+  toast(msg || '需要录音权限');
+};
+
 window.__onVoice = (text) => {
   recording = false;
   const mb = $('#mic');
@@ -1161,6 +1467,23 @@ function loadEarlier() {
 
 s.onclick = () => send();
 if ($('#mic')) $('#mic').onclick = startVoice;
+if ($('#stealBtn')) $('#stealBtn').onclick = async () => {
+  const q = prompt('想让她找什么样的表情包？\n（比如：猫猫、无语、爱心、生气）', '可爱');
+  if (q === null) return;
+  toast('她去找了…');
+  const got = await stealSticker(q || '可爱');
+  toast(got ? '偷到一张，已进她的表情包' : '没偷到，换一个词试试');
+};
+
+if ($('#stkBtn')) $('#stkBtn').onclick = () => {
+  if (!stkCache.length) { alert('她还没有自己的表情包\n你发几张图或动图给她，她就会收下来'); return; }
+  const ans = prompt('她有 ' + stkCache.length + ' 张表情包\n\n输入序号删掉一张（1~' + stkCache.length + '），\n留空则清空全部，\n点取消什么都不做');
+  if (ans === null) return;
+  if (ans.trim() === '') { stkClear().then(() => alert('已全部清空')); return; }
+  const i = parseInt(ans, 10) - 1;
+  if (i >= 0 && i < stkCache.length) { stkDel(stkCache[i].id).then(() => alert('删掉了')); }
+};
+
 if ($('#memBtn')) $('#memBtn').onclick = () => {
   if (!mem.length) { alert('她还没记住什么，多聊几次就有了'); return; }
   const list = mem.map((x, i) => (i + 1) + '. ' + (typeof x === 'string' ? x : x.t)).join('\n');
