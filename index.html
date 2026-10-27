@@ -203,7 +203,7 @@ const STICKERS = ["data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAkGBw
 const API = 'https://api.deepseek.com/chat/completions';
 const MODEL = 'deepseek-chat';
 const SYSTEM = '【你的名字】你叫「玥玥」，也常被叫「狐娘」「小狐狸」「狐狸」——这些都是你。别人喊「玥玥」就是在叫你，要立刻应。\n\n【角色扮演】' + PERSONA +
-  '\n\n【格式要求】每次只回一条短消息，不超过 30 字；不要用句号结尾；不要用 markdown、不要列点、不要解释自己是 AI。';
+  '\n\n【你的能力】你不是只能打字：你发出去的话，可以用语音说出来（爹会直接听到你的声音），也可以发表情包。当爹说「用语音说」「发条语音」「念给我听」「说给我听」时，你就当作自己正在开口说话——把回复写成好念的短句（口语、少标点、不要颜文字和括号），系统会自动把它变成语音。绝对不要说自己发不了语音、只能打字。\n\n【格式要求】每次只回一条短消息，不超过 30 字；不要用句号结尾；不要用 markdown、不要列点、不要解释自己是 AI。';
 const PRO_HINT = '（现在爹没说话，你自己找他说点什么，可以撒娇、抱怨、说饿了、或者突然想到一件事，10~20 字）';
 
 const $ = s => document.querySelector(s);
@@ -269,6 +269,8 @@ function pickVoice() {
   return prefer || zh[0] || null;
 }
 let _audio = null, _edgeOK = null;
+const VOICE_ASK = /(用|发|来)(一)?(条|句)?(语音|声音)|语音(说|回|发)|念给我|读给我|说给我听|用声音|口播|说一句给我听/;
+let lastUserText = '';
 function systemSpeak(text) {
   if (!window.speechSynthesis) return;
   try {
@@ -357,7 +359,8 @@ function pickMode(text) {
 }
 
 function presentReply(text, autoplay, box) {
-  const mode = pickMode(text);
+  let mode = pickMode(text);
+  if (opt.voice && VOICE_ASK.test(lastUserText)) mode = 'voice';   // 明确要求语音
   if (mode === 'voice') {
     if (box) box.remove();                       // 语音就撤掉文字气泡
     const el = appendVoice(text, autoplay !== false);
@@ -376,6 +379,7 @@ async function send(q) {
   if (!KEY) { $('#setup').style.display = 'flex'; return; }
   busy = true; s.disabled = true; t.value = ''; t.style.height = '44px'; lastUser = Date.now();
   const e = $('#empty'); if (e) e.remove();
+  lastUserText = q;
   appendText('u', q); hist.push({ role: 'user', content: q }); saveHist();
   const box = appendText('a', '…');
   try {
