@@ -356,13 +356,15 @@ function pickMode(text) {
   return Math.random() < p ? 'voice' : 'text';
 }
 
-function presentReply(text, autoplay) {
+function presentReply(text, autoplay, box) {
   const mode = pickMode(text);
   if (mode === 'voice') {
+    if (box) box.remove();                       // 语音就撤掉文字气泡
     const el = appendVoice(text, autoplay !== false);
     m.appendChild(el); m.scrollTop = m.scrollHeight;
   } else {
-    appendText('a', text);
+    if (box) { box.textContent = text; m.scrollTop = m.scrollHeight; }   // 复用流式气泡
+    else appendText('a', text);
   }
   if (opt.sticker && Math.random() < 0.20) appendSticker();
   return mode;
@@ -380,7 +382,7 @@ async function send(q) {
     const msgs = [{ role: 'system', content: SYSTEM }, ...hist.slice(-12)];
     const acc = await chat(msgs, true, txt => { box.textContent = txt; m.scrollTop = m.scrollHeight; });
     if (!acc) box.textContent = '(空回复)';
-    else { const mode = presentReply(acc, true); hist.push({ role: 'assistant', content: acc, kind: mode }); saveHist(); }
+    else { const mode = presentReply(acc, true, box); hist.push({ role: 'assistant', content: acc, kind: mode }); saveHist(); }
   } catch (err) {
     box.textContent = '出错：' + err.message;
   }
@@ -426,7 +428,7 @@ setInterval(async () => {
     const text = await chat([{ role: 'system', content: SYSTEM }, { role: 'user', content: PRO_HINT }], false);
     if (text) {
       const e = $('#empty'); if (e) e.remove();
-      const mode = presentReply(text, true);
+      const mode = presentReply(text, true, null);
       hist.push({ role: 'assistant', content: text, kind: mode }); saveHist();
       lastUser = Date.now();
     }
