@@ -117,14 +117,35 @@ function appendSticker() {
   const img = document.createElement('img'); img.src = src; d.appendChild(img);
   m.appendChild(d); m.scrollTop = m.scrollHeight;
 }
-function appendAudio(text) {
-  const d = document.createElement('div'); d.className = 'aud';
+function appendVoice(text, autoplay) {
+  const d = document.createElement('div');
+  d.className = 'aud';
   const w = document.createElement('div'); w.className = 'w';
   for (let i = 0; i < 5; i++) { const b = document.createElement('i'); b.style.height = (5 + Math.random() * 10) + 'px'; w.appendChild(b); }
   const lab = document.createElement('span'); lab.textContent = '语音';
-  d.appendChild(w); d.appendChild(lab);
-  d.onclick = () => speak(text);
-  m.appendChild(d); m.scrollTop = m.scrollHeight;
+  const dur = document.createElement('em'); dur.style.cssText = 'font-style:normal;color:#6f7891;font-size:12px;margin-left:2px'; dur.textContent = '…″';
+  d.appendChild(w); d.appendChild(lab); d.appendChild(dur);
+  let playing = false, audio = null;
+  const play = () => {
+    if (playing && audio) { audio.pause(); playing = false; return; }
+    try {
+      if (audio) audio.pause();
+      audio = new Audio('http://127.0.0.1:8090/api/tts?text=' + encodeURIComponent(text.slice(0, 80)) + '&_=' + Date.now());
+      audio.addEventListener('loadedmetadata', () => {
+        if (isFinite(audio.duration)) dur.textContent = Math.round(audio.duration) + '″';
+      });
+      audio.addEventListener('ended', () => { playing = false; });
+      audio.play().then(() => { playing = true; }).catch(() => { playing = false; });
+      playing = true;
+    } catch (e) {}
+  };
+  d.onclick = play;
+  // 长按看文字
+  let t = null;
+  d.addEventListener('touchstart', () => { t = setTimeout(() => { d.title = text; alert(text); }, 600); });
+  d.addEventListener('touchend', () => { if (t) clearTimeout(t); });
+  if (autoplay) setTimeout(play, 350);
+  return d;
 }
 
 let voices = [];
@@ -175,8 +196,15 @@ function render() {
   }
   for (const h of hist) {
     if (h.role === 'user') appendText('u', h.content);
-    else if (h.role === 'assistant') appendText('a', h.content);
+    else if (h.role === 'assistant') {
+      if (h.kind === 'voice') {
+        const el = appendVoice(h.content, false); m.appendChild(el);
+      } else {
+        appendText('a', h.content);
+      }
+    }
   }
+  m.scrollTop = m.scrollHeight;
 }
 
 async function chat(messages, stream, onDelta) {
@@ -209,10 +237,23 @@ async function chat(messages, stream, onDelta) {
   return acc;
 }
 
-async function decorate(text) {
-  if (!text) return;
-  if (opt.voice && Math.random() < 0.55) { appendAudio(text); }
-  if (opt.sticker && Math.random() < 0.32) { appendSticker(); }
+function pickMode(text) {
+  if (!opt.voice) return 'text';
+  const len = (text || '').length;
+  const p = len <= 22 ? 0.35 : 0.10;     // 短句更容易变语音
+  return Math.random() < p ? 'voice' : 'text';
+}
+
+function presentReply(text, autoplay) {
+  const mode = pickMode(text);
+  if (mode === 'voice') {
+    const el = appendVoice(text, autoplay !== false);
+    m.appendChild(el); m.scrollTop = m.scrollHeight;
+  } else {
+    appendText('a', text);
+  }
+  if (opt.sticker && Math.random() < 0.20) appendSticker();
+  return mode;
 }
 
 async function send(q) {
@@ -227,7 +268,7 @@ async function send(q) {
     const msgs = [{ role: 'system', content: SYSTEM }, ...hist.slice(-12)];
     const acc = await chat(msgs, true, txt => { box.textContent = txt; m.scrollTop = m.scrollHeight; });
     if (!acc) box.textContent = '(空回复)';
-    else { hist.push({ role: 'assistant', content: acc }); saveHist(); decorate(acc); }
+    else { const mode = presentReply(acc, true); hist.push({ role: 'assistant', content: acc, kind: mode }); saveHist(); }
   } catch (err) {
     box.textContent = '出错：' + err.message;
   }
@@ -273,8 +314,9 @@ setInterval(async () => {
     const text = await chat([{ role: 'system', content: SYSTEM }, { role: 'user', content: PRO_HINT }], false);
     if (text) {
       const e = $('#empty'); if (e) e.remove();
-      appendText('a', text); hist.push({ role: 'assistant', content: text }); saveHist();
-      decorate(text); lastUser = Date.now();
+      const mode = presentReply(text, true);
+      hist.push({ role: 'assistant', content: text, kind: mode }); saveHist();
+      lastUser = Date.now();
     }
   } catch (e) {}
 }, 60000);
