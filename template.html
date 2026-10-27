@@ -67,6 +67,10 @@ input.key{width:100%;padding:12px;border-radius:11px;border:1px solid #2b3145;ba
 <div class="panel" id="panel">
   <h3>设置</h3>
   <div class="row">语音回复<div class="tg on" id="tgV"></div></div>
+  <div class="row"><span>声音</span>
+    <select id="voiceSel" style="background:#1a1e29;color:#e8eaf0;border:1px solid #2b3145;border-radius:9px;padding:7px 9px;font:inherit;font-size:13.5px;max-width:58%"></select>
+  </div>
+  <div class="row">试听<button class="ghost" id="tryVoice" style="padding:6px 12px">听一句</button></div>
   <div class="row">发我表情包<div class="tg on" id="tgS"></div></div>
   <div class="row">主动找我说话<div class="tg on" id="tgP"></div></div>
   <div class="row">清空聊天记录<button class="ghost" id="clr" style="padding:6px 12px">清空</button></div>
@@ -97,7 +101,19 @@ const PRO_HINT = '（现在爹没说话，你自己找他说点什么，可以�
 const $ = s => document.querySelector(s);
 const m = $('#m'), t = $('#t'), s = $('#s');
 let hist = [], busy = false, lastUser = Date.now();
-let opt = { voice: true, sticker: true, proactive: true };
+const VOICE_LIST = [
+  ['zh-CN-XiaoyiNeural', '小忆 · 少女活泼（当前）'],
+  ['zh-CN-XiaoxiaoNeural', '晓晓 · 温柔自然'],
+  ['zh-CN-YunxiNeural', '云希 · 少年阳光'],
+  ['zh-CN-YunjianNeural', '云健 · 激情男声'],
+  ['zh-CN-YunxiaNeural', '云夏 · 可爱小男孩'],
+  ['zh-CN-YunyangNeural', '云扬 · 播音腔'],
+  ['zh-CN-liaoning-XiaobeiNeural', '小北 · 东北话'],
+  ['zh-CN-shaanxi-XiaoniNeural', '小妮 · 陕西话'],
+  ['zh-HK-HiuGaaiNeural', '曉佳 · 粤语'],
+  ['zh-TW-HsiaoChenNeural', '曉臻 · 台湾腔'],
+];
+let opt = { voice: true, sticker: true, proactive: true, voiceName: 'zh-CN-XiaoyiNeural' };
 let KEY = localStorage.getItem('huli_key') || '';
 
 try { const o = JSON.parse(localStorage.getItem('huli_opt') || '{}'); opt = { ...opt, ...o }; } catch (e) {}
@@ -130,7 +146,7 @@ function appendVoice(text, autoplay) {
     if (playing && audio) { audio.pause(); playing = false; return; }
     try {
       if (audio) audio.pause();
-      audio = new Audio('http://127.0.0.1:8090/api/tts?text=' + encodeURIComponent(text.slice(0, 80)) + '&_=' + Date.now());
+      audio = new Audio('http://127.0.0.1:8090/api/tts?voice=' + encodeURIComponent(opt.voiceName || 'zh-CN-XiaoyiNeural') + '&text=' + encodeURIComponent(text.slice(0, 80)) + '&_=' + Date.now());
       audio.addEventListener('loadedmetadata', () => {
         if (isFinite(audio.duration)) dur.textContent = Math.round(audio.duration) + '″';
       });
@@ -303,6 +319,29 @@ $('#tgS').onclick = () => { opt.sticker = !opt.sticker; saveOpt(); syncToggles()
 $('#tgP').onclick = () => { opt.proactive = !opt.proactive; saveOpt(); syncToggles(); };
 $('#clr').onclick = () => { hist = []; saveHist(); render(); };
 syncToggles();
+
+function fillVoices() {
+  const sel = $('#voiceSel');
+  if (!sel) return;
+  sel.innerHTML = '';
+  VOICE_LIST.forEach(([id, label]) => {
+    const o = document.createElement('option');
+    o.value = id; o.textContent = label;
+    if ((opt.voiceName || 'zh-CN-XiaoyiNeural') === id) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = () => { opt.voiceName = sel.value; saveOpt(); };
+  const btn = $('#tryVoice');
+  if (btn) btn.onclick = () => {
+    try {
+      const a = new Audio('http://127.0.0.1:8090/api/tts?voice=' + encodeURIComponent(opt.voiceName) +
+                          '&text=' + encodeURIComponent('爹 我是玥玥 听听这个声音怎么样') + '&_=' + Date.now());
+      a.play().catch(() => alert('放不出来：Termux 里的语音服务没开'));
+    } catch (e) {}
+  };
+}
+fillVoices();
+
 
 $('#saveKey').onclick = () => {
   const v = $('#keyFirst').value.trim();
