@@ -247,7 +247,8 @@ function pickVoice() {
   const prefer = zh.find(v => /Xiaoxiao|Tingting|Meijia|Yunxi|婷婷|晓晓/i.test(v.name));
   return prefer || zh[0] || null;
 }
-function speak(text) {
+let _audio = null, _edgeOK = null;
+function systemSpeak(text) {
   if (!window.speechSynthesis) return;
   try {
     speechSynthesis.cancel();
@@ -256,6 +257,26 @@ function speak(text) {
     const v = pickVoice(); if (v) u.voice = v;
     speechSynthesis.speak(u);
   } catch (e) {}
+}
+
+/** 先试 edge-tts（和 QQ 里同一个音色：小忆），拿不到就用系统朗读 */
+function speak(text) {
+  const t = (text || '').trim();
+  if (!t) return;
+  const url = 'http://127.0.0.1:8090/api/tts?text=' + encodeURIComponent(t.slice(0, 80)) + '&_=' + Date.now();
+  try {
+    if (_audio) { _audio.pause(); _audio = null; }
+    const a = new Audio(url);
+    let done = false;
+    const fallback = () => { if (!done) { done = true; _edgeOK = false; systemSpeak(t); } };
+    a.addEventListener('error', fallback);
+    const timer = setTimeout(() => { if (a.readyState < 2) fallback(); }, 2500);
+    a.addEventListener('canplaythrough', () => { clearTimeout(timer); done = true; _edgeOK = true; });
+    a.play().catch(fallback);
+    _audio = a;
+  } catch (e) {
+    systemSpeak(t);
+  }
 }
 
 function render() {
@@ -331,7 +352,7 @@ t.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.p
 
 $('#gear').onclick = () => {
   $('#keyIn').value = KEY;
-  $('#voiceHint').textContent = '语音用系统朗读：' + (pickVoice() ? pickVoice().name : '未找到中文语音（可在 设置→辅助功能→朗读内容 里下载）');
+  $('#voiceHint').textContent = '语音：优先用 QQ 同款 edge-tts（小忆），连不上则用系统朗读。当前系统语音：' + (pickVoice() ? pickVoice().name : '未找到中文语音（可在 设置→辅助功能→朗读内容 里下载）');
   $('#panel').classList.add('on');
 };
 $('#close').onclick = () => { $('#panel').classList.remove('on'); };
