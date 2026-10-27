@@ -38,7 +38,7 @@ footer{padding:9px 9px calc(9px + env(safe-area-inset-bottom));background:#15182
 #t{flex:1;height:44px;max-height:120px;resize:none;padding:11px 13px;border-radius:13px;border:1px solid #2b3145;background:#0f1219;color:#e8eaf0;font:inherit;font-size:15.5px}
 #t:focus{outline:none;border-color:#2b6cf6}
 #s{padding:0 18px;height:44px}
-.panel{position:fixed;inset:0;background:#0e1015f2;backdrop-filter:blur(8px);padding:calc(20px + env(safe-area-inset-top)) 18px;display:none;flex-direction:column;gap:14px;z-index:50}
+.panel{position:fixed;inset:0;background:#0e1015;padding:calc(20px + env(safe-area-inset-top)) 18px;display:none;flex-direction:column;gap:14px;z-index:50}
 .panel.on{display:flex}
 .panel h3{margin:0 0 4px;font-size:17px}
 .row{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid #1e232f;font-size:15px}
@@ -59,6 +59,7 @@ button:disabled{ transform: none; filter: none; }
 .ghost:active{ filter: brightness(1.35); }
 .gear:active{ transform: rotate(25deg) scale(.93); }
 
+
 /* 点击涟漪 */
 .ripple{ position: relative; overflow: hidden; }
 .ripple .rp{
@@ -69,18 +70,18 @@ button:disabled{ transform: none; filter: none; }
 @keyframes rip{ to{ transform: scale(2.6); opacity: 0; } }
 
 /* 消息入场 */
-.b{ animation: fadeUp .22s ease-out both; }
-.st, .aud{ animation: popIn .26s cubic-bezier(.2,.9,.3,1.4) both; }
+
+
 @keyframes fadeUp{ from{ opacity:0; transform: translateY(8px); } to{ opacity:1; transform:none; } }
 @keyframes popIn{ from{ opacity:0; transform: scale(.86); } to{ opacity:1; transform: scale(1); } }
 
 /* 平滑滚动 + 细滚动条 */
-main{ scroll-behavior: smooth; }
+main{  }
 main::-webkit-scrollbar{ width: 0; height: 0; }
 
 /* 状态点呼吸 */
 @keyframes breathe{ 0%,100%{ transform: scale(1); opacity:.9 } 50%{ transform: scale(1.28); opacity:.55 } }
-#dot.on{ animation: breathe 2.6s ease-in-out infinite; }
+
 
 /* 「正在输入」三点 */
 .typing{ align-self:flex-start; display:flex; gap:5px; padding:12px 14px; margin-bottom:10px;
@@ -100,7 +101,7 @@ main::-webkit-scrollbar{ width: 0; height: 0; }
 .panel.on{ opacity:1; transform:none; }
 
 /* 图片预览出现 */
-#preview{ animation: fadeUp .2s ease-out both; }
+
 #preview img{ transition: transform .2s; }
 #preview img:active{ transform: scale(1.04); }
 
@@ -108,6 +109,51 @@ main::-webkit-scrollbar{ width: 0; height: 0; }
   *{ animation: none !important; transition: none !important; }
 }
 
+
+/* smoother */
+main{   }
+.b,.st,.aud{ will-change: transform, opacity; }
+
+/* 设置面板：可上下滑动 + 关闭按钮固定可见 */
+.panel{
+  overflow-y: auto !important;
+  
+  overscroll-behavior: contain;
+  padding-bottom: calc(28px + env(safe-area-inset-bottom));
+}
+.panel > * { flex: none; }
+#close{
+  position: sticky;
+  bottom: 0;
+  margin-top: 18px !important;
+  background:#0e1015;
+}
+
+
+/* 滚动顺滑：只做「提层 + 隔离绘制」，不碰布局容器 */
+
+.panel{   }
+
+/* 单条消息只隔离绘制，不影响布局（比 contain:content 安全） */
+.b, .st, .aud{ contain: paint; }
+/* 入场动画再短一点，减少滚动时同时进行的动画 */
+
+
+/* 滚动时不再给每条消息强制合成层（will-change 太多反而更卡） */
+.b, .st, .aud{ will-change: auto !important; }
+
+/* 性能：把固定头尾提到独立合成层，滚动时不必重绘它们 */
+header, footer{
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+  border: 0 !important;
+}
+/* 用背景色差代替 1px 边框，省一次全宽重绘 */
+header{ box-shadow: 0 1px 0 #232838; }
+footer{ box-shadow: 0 -1px 0 #232838; }
+/* 文字渲染提速：关掉字距/连字计算，中文观感几乎无差 */
+body{ text-rendering: optimizeSpeed; }
 </style>
 </head>
 <body>
@@ -118,7 +164,8 @@ main::-webkit-scrollbar{ width: 0; height: 0; }
 </header>
 <main id="m"></main>
 <footer>
-  <button id="pick" style="background:#252b3a;padding:0 13px;height:44px">📷</button>
+  <button id="mic" style="background:#252b3a;padding:0 13px;height:44px">🎤</button>
+  <button id="pick" style="background:#252b3a;padding:0 11px;height:44px">📷</button>
   <input id="file" type="file" accept="image/*" style="display:none">
   <textarea id="t" placeholder="说点什么…" rows="1"></textarea>
   <button id="s">发</button>
@@ -137,6 +184,9 @@ main::-webkit-scrollbar{ width: 0; height: 0; }
   <div class="row">试听<button class="ghost" id="tryVoice" style="padding:6px 12px">听一句</button></div>
   <div class="row">发我表情包<div class="tg on" id="tgS"></div></div>
   <div class="row">主动找我说话<div class="tg on" id="tgP"></div></div>
+  <div class="row"><span>她记得的事 <b id="memCount" style="color:#5b8cff">0</b> 条</span>
+    <button class="ghost" id="memBtn" style="padding:6px 12px">查看</button>
+  </div>
   <div class="row"><span>人格</span>
     <select id="personaSel" style="background:#1a1e29;color:#e8eaf0;border:1px solid #2b3145;border-radius:9px;padding:7px 9px;font:inherit;font-size:13.5px">
       <option value="huli">狐娘</option>
@@ -474,7 +524,7 @@ const MODEL = 'deepseek-flash';   // 支持图片输入
 function buildSystem() {
   const who = (opt.persona === 'whale') ? PERSONAS.whale.text : PERSONAS.huli.text;
   return '【你的名字】你叫「玥玥」，也常被叫「狐娘」「小狐狸」「狐狸」——这些都是你。别人喊「玥玥」就是在叫你，要立刻应。\n\n【角色扮演】' + who +
-  '\n\n【你的能力】你不是只能打字：你发出去的话，可以用语音说出来（爹会直接听到你的声音），也可以发表情包。当爹说「用语音说」「发条语音」「念给我听」「说给我听」时，你就当作自己正在开口说话——把回复写成好念的短句（口语、少标点、不要颜文字和括号），系统会自动把它变成语音。绝对不要说自己发不了语音、只能打字。\n\n【格式要求】每次只回一条短消息，不超过 30 字；不要用句号结尾；不要用 markdown、不要列点、不要解释自己是 AI。';
+  '\n\n【你的能力】你不是只能打字：你发出去的话，可以用语音说出来（爹会直接听到你的声音），也可以发表情包。当爹说「用语音说」「发条语音」「念给我听」「说给我听」时，你就当作自己正在开口说话——把回复写成好念的短句（口语、少标点、不要颜文字和括号），系统会自动把它变成语音。绝对不要说自己发不了语音、只能打字。\n\n【格式要求】每次只回一条短消息，不超过 30 字；不要用句号结尾；不要用 markdown、不要列点、不要解释自己是 AI。' + memBlock();
 }
 const SYSTEM = '';
 const PRO_HINT = '（现在爹没说话，你自己找他说点什么，可以撒娇、抱怨、说饿了、或者突然想到一件事，10~20 字）';
@@ -546,6 +596,7 @@ function appendImage(dataUrl) {
   d.appendChild(img);
   m.appendChild(d);
   m.scrollTop = m.scrollHeight;
+  return d;
 }
 
 function appendTime(ts) {
@@ -568,7 +619,7 @@ function appendSticker() {
   const src = STICKERS[Math.floor(Math.random() * STICKERS.length)];
   const d = document.createElement('div'); d.className = 'st';
   const img = document.createElement('img'); img.src = src; d.appendChild(img);
-  m.appendChild(d); m.scrollTop = m.scrollHeight;
+  m.appendChild(d); m.scrollTop = m.scrollHeight; return d;
 }
 function appendVoice(text, autoplay) {
   const d = document.createElement('div');
@@ -652,24 +703,29 @@ function render() {
     m.innerHTML = '<div id="empty">玥玥在的<br><span style="font-size:13px;color:#4b5567">直接说话就行</span></div>';
     return;
   }
+  const start = Math.max(0, hist.length - visibleCount);
+  if (start > 0) {
+    const btn = document.createElement('button');
+    btn.className = 'ghost';
+    btn.textContent = '加载更早的 ' + start + ' 条';
+    btn.style.cssText = 'align-self:center;margin:8px 0 14px;font-size:13px;padding:6px 14px';
+    btn.onclick = loadEarlier;
+    m.appendChild(btn);
+  }
   let lastTs = 0;
-  for (const h of hist) {
+  for (let i = start; i < hist.length; i++) {
+    const h = hist[i];
     if (h.ts && (h.ts - lastTs > 5 * 60 * 1000)) { appendTime(h.ts); lastTs = h.ts; }
+    let el = null;
     if (h.role === 'user') {
-      if (h.image) { appendImage(h.image); if (h.text) appendText('u', h.text); }
-      else if (typeof h.content === 'string') appendText('u', h.content);
-    }
-    else if (h.role === 'user' && h.image) {
-      appendImage(h.image);
-      if (h.content) appendText('u', h.content);
+      if (h.image) { el = appendImage(h.image); if (h.text) appendText('u', h.text); }
+      else if (typeof h.content === 'string') el = appendText('u', h.content);
     }
     else if (h.role === 'assistant') {
-      if (h.kind === 'voice') {
-        const el = appendVoice(h.content, false); m.appendChild(el);
-      } else {
-        appendText('a', h.content);
-      }
+      if (h.kind === 'voice') el = appendVoice(h.content, false);
+      else el = appendText('a', h.content);
     }
+    if (el && el.dataset) el.dataset.i = String(i);
   }
   m.scrollTop = m.scrollHeight;
 }
@@ -734,12 +790,14 @@ async function send(q) {
   const e = $('#empty'); if (e) e.remove();
   lastUserText = q;
   const img = pendingImage;
+  const domStart = m.children.length;
   if (img) { appendImage(img); }
   if (q) { appendText('u', q); }
   const userContent = img
     ? [{ type: 'text', text: q || '看看这个' }, { type: 'image_url', image_url: { url: img } }]
     : q;
   hist.push({ role: 'user', content: userContent, text: q, image: img || null, ts: Date.now() });
+  tagFrom(domStart, hist.length - 1);
   saveHist();
   showPreview(null);
   const box = appendText('a', '');
@@ -750,7 +808,14 @@ async function send(q) {
     const acc = await chat(msgs, true, txt => { box.textContent = txt; m.scrollTop = m.scrollHeight; });
     hideTyping(); box.style.display = '';
     if (!acc) box.textContent = '(空回复)';
-    else { const mode = presentReply(acc, true, box); hist.push({ role: 'assistant', content: acc, kind: mode, ts: Date.now() }); saveHist(); }
+    else {
+      const mode = presentReply(acc, true, box);
+      hist.push({ role: 'assistant', content: acc, kind: mode, ts: Date.now() });
+      tagFrom(domReply, hist.length - 1);
+      saveHist();
+      turnCount++;
+      if (turnCount % 2 === 0) setTimeout(extractMemory, 1200);
+    }
   } catch (err) {
     hideTyping(); box.style.display = '';
     box.textContent = '出错：' + err.message;
@@ -794,7 +859,313 @@ function hideTyping() {
   if (typingEl) { typingEl.remove(); typingEl = null; }
 }
 
+
+/* ===== 选图（优先原生桥，其次 file input）===== */
+$('#pick').onclick = () => {
+  try {
+    if (window.Android && window.Android.pickImage) { window.Android.pickImage(); return; }
+  } catch (e) {}
+  $('#file').click();
+};
+
+$('#file').onchange = async (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  try {
+    const dataUrl = await downscale(f, 1000, 0.82);
+    showPreview(dataUrl);
+  } catch (err) { alert('读图失败：' + err); }
+  e.target.value = '';
+};
+
+$('#pvclear').onclick = () => showPreview(null);
+
+/* 原生桥回传图片 */
+window.__onImage = (dataUrl) => {
+  try { showPreview(dataUrl); } catch (e) {}
+};
+
+/* ================= ① 长期记忆 ================= */
+let mem = [];
+try { mem = JSON.parse(localStorage.getItem('huli_mem') || '[]') || []; } catch (e) { mem = []; }
+const saveMem = () => { try { localStorage.setItem('huli_mem', JSON.stringify(mem.slice(-80))); } catch (e) {} };
+
+function memBlock() {
+  if (!mem.length) return '';
+  const lines = mem.slice(-25).map(x => '- ' + (typeof x === 'string' ? x : x.t)).join('\n');
+  return '\n\n【你记得的事】（这些是你早就知道的，别问，直接用，别说"你之前说过"这种话）\n' + lines;
+}
+
+let memBusy = false, turnCount = 0;
+const MEM_PROMPT = '从下面这段对话里，提取值得长期记住的关于「三元」的事实（喜好、忌讳、习惯、正在做的事、重要的人或日期）。'
+  + '每条不超过 18 个字，用第三人称，例如 "三元不吃香菜"。只输出 JSON 数组，没有新东西就输出 []。不要解释。';
+
+async function extractMemory() {
+  if (memBusy || !KEY) return;
+  memBusy = true;
+  try {
+    const recent = hist.slice(-8).map(h => {
+      const who = h.role === 'user' ? '三元' : '玥玥';
+      const txt = typeof h.content === 'string' ? h.content : (h.text || '[图片]');
+      return who + '：' + String(txt).slice(0, 120);
+    }).join('\n');
+    const raw = await chat([
+      { role: 'system', content: MEM_PROMPT },
+      { role: 'user', content: recent }
+    ], false);
+    const mjson = String(raw).match(/\[[\s\S]*\]/);
+    if (!mjson) return;
+    const arr = JSON.parse(mjson[0]);
+    if (!Array.isArray(arr)) return;
+    let added = 0;
+    for (const raw2 of arr) {
+      const t = String(typeof raw2 === 'string' ? raw2 : (raw2 && raw2.t) || '').trim();
+      if (!t || t.length < 3) continue;
+      const dup = mem.some(x => {
+        const y = typeof x === 'string' ? x : x.t;
+        return y.includes(t) || t.includes(y);
+      });
+      if (dup) continue;
+      mem.push({ t, ts: Date.now() });
+      added++;
+    }
+    if (added) { saveMem(); syncMemUI(); }
+  } catch (e) {} finally { memBusy = false; }
+}
+
+function syncMemUI() {
+  const el = $('#memCount');
+  if (el) el.textContent = mem.length;
+}
+syncMemUI();
+
+/* ================= ② 长按菜单 ================= */
+let lpTimer = null, menuEl = null, menuIdx = -1;
+
+function closeMenu() {
+  if (menuEl) { menuEl.remove(); menuEl = null; }
+  menuIdx = -1;
+}
+
+function openMenu(el, idx) {
+  closeMenu();
+  menuIdx = idx;
+  const h = hist[idx];
+  if (!h) return;
+  const box = document.createElement('div');
+  box.id = 'lpMenu';
+  box.style.cssText = 'position:fixed;inset:0;z-index:80;background:#000a;display:flex;align-items:center;justify-content:center';
+  const card = document.createElement('div');
+  card.style.cssText = 'background:#1a1e29;border:1px solid #2f3548;border-radius:16px;padding:8px;min-width:190px;display:flex;flex-direction:column;gap:6px';
+  const mk = (label, fn, danger) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = 'background:transparent;border:0;color:' + (danger ? '#ff6b6b' : '#e8eaf0')
+      + ';font:inherit;font-size:15.5px;padding:13px 16px;text-align:left;border-radius:11px';
+    b.onclick = (ev) => { ev.stopPropagation(); closeMenu(); fn(); };
+    card.appendChild(b);
+  };
+  const text = typeof h.content === 'string' ? h.content : (h.text || '');
+  mk('复制', () => {
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => toast('已复制')).catch(() => toast('复制失败'));
+    else toast(text.slice(0, 60));
+  });
+  if (h.role === 'assistant') mk('重新生成', () => regen(idx));
+  mk('删除这条', () => { hist.splice(idx, 1); saveHist(); render(); }, true);
+  box.appendChild(card);
+  box.onclick = () => closeMenu();
+  document.body.appendChild(box);
+  menuEl = box;
+}
+
+let toastEl = null;
+function toast(msg) {
+  if (toastEl) toastEl.remove();
+  toastEl = document.createElement('div');
+  toastEl.textContent = msg;
+  toastEl.style.cssText = 'position:fixed;left:50%;bottom:22%;transform:translateX(-50%);background:#2a3143;color:#fff;'
+    + 'padding:10px 18px;border-radius:20px;font-size:14px;z-index:99;opacity:0;transition:opacity .18s';
+  document.body.appendChild(toastEl);
+  requestAnimationFrame(() => { toastEl.style.opacity = '1'; });
+  setTimeout(() => { if (toastEl) { toastEl.style.opacity = '0'; setTimeout(() => toastEl && toastEl.remove(), 220); } }, 1400);
+}
+
+/* 长按监听 */
+document.addEventListener('touchstart', (e) => {
+  const el = e.target.closest('#m .b, #m .st, #m .aud');
+  if (!el) return;
+  const idx = Number(el.dataset.i);
+  if (!Number.isFinite(idx) || idx < 0) return;
+  lpTimer = setTimeout(() => { lpTimer = null; openMenu(el, idx); }, 520);
+}, { passive: true });
+['touchend', 'touchmove', 'touchcancel', 'scroll'].forEach(ev =>
+  document.addEventListener(ev, () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } }, { passive: true }));
+document.addEventListener('contextmenu', (e) => {
+  const el = e.target.closest('#m .b, #m .st, #m .aud');
+  if (!el) return;
+  e.preventDefault();
+  const idx = Number(el.dataset.i);
+  if (Number.isFinite(idx) && idx >= 0) openMenu(el, idx);
+});
+
+/* 重新生成 */
+async function regen(idx) {
+  const h = hist[idx];
+  if (!h || h.role !== 'assistant' || busy) return;
+  hist.splice(idx, 1);
+  saveHist();
+  render();
+  busy = true; s.disabled = true;
+  const domReply = m.children.length;
+  const box = appendText('a', '');
+  box.style.display = 'none';
+  showTyping();
+  try {
+    const msgs = [{ role: 'system', content: buildSystem() },
+      ...hist.slice(-12).map(x => ({ role: x.role, content: x.content }))];
+    const acc = await chat(msgs, true, txt => { box.textContent = txt; m.scrollTop = m.scrollHeight; });
+    hideTyping(); box.style.display = '';
+    if (!acc) box.textContent = '(空回复)';
+    else {
+      const mode = presentReply(acc, true, box);
+      hist.push({ role: 'assistant', content: acc, kind: mode, ts: Date.now() });
+      saveHist();
+      tagLast(box);
+    }
+  } catch (err) {
+    hideTyping(); box.style.display = '';
+    box.textContent = '出错：' + err.message;
+  }
+  busy = false; s.disabled = false;
+}
+
+function tagFrom(domIdx, histIdx) {
+  const kids = m.children;
+  for (let k = domIdx; k < kids.length; k++) {
+    if (kids[k] && kids[k].dataset) kids[k].dataset.i = String(histIdx);
+  }
+}
+
+function tagLast(el) {
+  if (!el || !el.dataset) return;
+  el.dataset.i = String(hist.length - 1);
+}
+
+/* ================= ④ 语音输入 ================= */
+let recog = null, recording = false;
+
+function stopRecog() {
+  recording = false;
+  const mb = $('#mic');
+  if (mb) { mb.style.background = '#252b3a'; mb.textContent = '🎤'; }
+  try { if (recog) recog.stop(); } catch (e) {}
+}
+
+function startVoice() {
+  if (recording) { stopRecog(); return; }
+  // 优先用原生识别（小米自带引擎，比 WebView 的 Web Speech 稳）
+  try {
+    if (window.Android && window.Android.startVoice) {
+      recording = true;
+      const mb = $('#mic'); mb.style.background = '#3d5afe'; mb.textContent = '●';
+      window.Android.startVoice();
+      setTimeout(() => { if (recording) stopRecog(); }, 15000);
+      return;
+    }
+  } catch (e) {}
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast('这台手机没有可用的语音识别'); return; }
+  recog = new SR();
+  recog.lang = 'zh-CN';
+  recog.interimResults = true;
+  recog.continuous = false;
+  let finalText = '';
+  recording = true;
+  const mb = $('#mic'); mb.style.background = '#3d5afe'; mb.textContent = '●';
+  recog.onresult = (ev) => {
+    let txt = '';
+    for (let i = 0; i < ev.results.length; i++) txt += ev.results[i][0].transcript;
+    t.value = txt;
+    t.style.height = '44px';
+    t.style.height = Math.min(t.scrollHeight, 120) + 'px';
+    finalText = txt;
+  };
+  recog.onerror = () => { stopRecog(); toast('没听清，再说一次'); };
+  recog.onend = () => {
+    stopRecog();
+    if (finalText.trim()) toast('听到了');
+  };
+  try { recog.start(); } catch (e) { stopRecog(); }
+}
+
+window.__onVoice = (text) => {
+  recording = false;
+  const mb = $('#mic');
+  if (mb) { mb.style.background = '#252b3a'; mb.textContent = '🎤'; }
+  if (text && String(text).trim()) {
+    t.value = String(text).trim();
+    t.style.height = '44px';
+    t.style.height = Math.min(t.scrollHeight, 120) + 'px';
+    t.focus();
+  }
+};
+
+/* ================= ③ 时间感知主动消息 ================= */
+function slotNow() {
+  const d = new Date();
+  const h = d.getHours();
+  const key = d.toISOString().slice(0, 10);
+  if (h >= 6 && h < 10) return { key: key + 'm', hint: '现在是早上。跟爹道早安，问问他起了没、吃早饭没，语气软一点。' };
+  if (h >= 10 && h < 14) return { key: key + 'n', hint: '现在快中午了。问爹吃了什么，或者自己说饿了想吃饭。' };
+  if (h >= 14 && h < 18) return { key: key + 'a', hint: '现在是下午。随口提一件自己想到的小事，或者撒个娇要关注。' };
+  if (h >= 18 && h < 22) return { key: key + 'e', hint: '现在是傍晚。问爹晚饭吃了没，或者问问今天过得怎么样。' };
+  if (h >= 22 || h < 2) return { key: key + 'l', hint: '现在是深夜。催爹睡觉，说自己困了；如果爹还在熬夜就念叨他两句。' };
+  return { key: key + 'zz', hint: '现在是凌晨。半睡半醒地说一句困话，别太长。' };
+}
+
+function lastProactiveSlot() { return localStorage.getItem('huli_slot') || ''; }
+function markSlot(k) { localStorage.setItem('huli_slot', k); }
+
+async function proactiveTick() {
+  if (!opt.proactive || busy || !KEY) return;
+  if (Date.now() - lastUser < 45 * 60 * 1000) return;          // 最近 45 分钟聊过就不打扰
+  const slot = slotNow();
+  if (lastProactiveSlot() === slot.key) return;                 // 这个时段已经找过了
+  if (Math.random() > 0.35) return;
+  try {
+    const text = await chat([
+      { role: 'system', content: buildSystem() },
+      { role: 'user', content: '（' + slot.hint + ' 10~20 字，直接说，不要解释）' }
+    ], false);
+    if (text) {
+      const e = $('#empty'); if (e) e.remove();
+      const mode = presentReply(text, true, null);
+      hist.push({ role: 'assistant', content: text, kind: mode, ts: Date.now() });
+      saveHist();
+      lastUser = Date.now();
+      markSlot(slot.key);
+    }
+  } catch (e) {}
+}
+
+/* ================= ⑥ 长列表虚拟化 ================= */
+let visibleCount = 60;
+
+function loadEarlier() {
+  visibleCount += 60;
+  render();
+  if (m.scrollHeight > 0) m.scrollTop = 200;
+}
+
+
 s.onclick = () => send();
+if ($('#mic')) $('#mic').onclick = startVoice;
+if ($('#memBtn')) $('#memBtn').onclick = () => {
+  if (!mem.length) { alert('她还没记住什么，多聊几次就有了'); return; }
+  const list = mem.map((x, i) => (i + 1) + '. ' + (typeof x === 'string' ? x : x.t)).join('\n');
+  if (confirm('她记得这些：\n\n' + list + '\n\n要清空吗？')) { mem = []; saveMem(); syncMemUI(); }
+};
 t.addEventListener('input', () => { t.style.height = '44px'; t.style.height = Math.min(t.scrollHeight, 120) + 'px'; });
 t.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
 
@@ -804,6 +1175,7 @@ $('#gear').onclick = () => {
   $('#panel').classList.add('on');
 };
 $('#close').onclick = () => { $('#panel').classList.remove('on'); };
+$('#panel').addEventListener('click', (e) => { if (e.target.id === 'panel') $('#panel').classList.remove('on'); });
 $('#keyIn').onchange = e => { KEY = e.target.value.trim(); localStorage.setItem('huli_key', KEY); };
 
 function syncToggles() {
@@ -849,20 +1221,10 @@ $('#saveKey').onclick = () => {
 };
 $('#keyIn').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
 
-setInterval(async () => {
-  if (!opt.proactive || busy || !KEY) return;
-  if (Date.now() - lastUser < 5 * 60 * 1000) return;
-  if (Math.random() > 0.05) return;
-  try {
-    const text = await chat([{ role: 'system', content: buildSystem() }, { role: 'user', content: PRO_HINT }], false);
-    if (text) {
-      const e = $('#empty'); if (e) e.remove();
-      const mode = presentReply(text, true, null);
-      hist.push({ role: 'assistant', content: text, kind: mode, ts: Date.now() }); saveHist();
-      lastUser = Date.now();
-    }
-  } catch (e) {}
-}, 60000);
+setInterval(proactiveTick, 90000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') setTimeout(proactiveTick, 4000);
+});
 
 render();
 if (!KEY) $('#setup').style.display = 'flex';
