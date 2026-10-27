@@ -229,6 +229,8 @@ let opt = { voice: true, sticker: true, proactive: true, voiceName: 'zh-CN-Xiaoy
 let KEY = localStorage.getItem('huli_key') || '';
 
 try { const o = JSON.parse(localStorage.getItem('huli_opt') || '{}'); opt = { ...opt, ...o }; } catch (e) {}
+if (opt.voiceMig !== 'yj1') { opt.voiceName = 'zh-CN-XiaoyiNeural'; opt.voiceMig = 'yj1'; }
+
 try { hist = JSON.parse(localStorage.getItem('huli_hist') || '[]') || []; } catch (e) { hist = []; }
 
 const saveHist = () => { try { localStorage.setItem('huli_hist', JSON.stringify(hist.slice(-60))); } catch (e) {} };
