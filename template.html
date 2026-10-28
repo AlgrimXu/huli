@@ -787,6 +787,7 @@ body.light .legend{ background:#f5f7fb; border-color:#e4e8f0; }
       <div class="row">说完自动发送<div class="tg on" id="tgA"></div></div>
 
       <div class="row">语音唤醒<div class="tg" id="wakeTg"></div></div>
+      <div class="row"><span>唤醒词</span><input id="wakeWord" placeholder="玥玥醒醒" style="flex:1;max-width:52%"></div>
 
     </div>
 
@@ -1633,7 +1634,7 @@ const PERSONAS = {
 
 };
 
-const BUILD_TAG = 'BUILD-1028-002556';
+const BUILD_TAG = 'BUILD-1028-005551';
 const API = 'https://api.deepseek.com/chat/completions';
 
 const MODEL = 'deepseek-flash';   // 支持图片输入
@@ -1645,6 +1646,9 @@ function buildSystem() {
   return '【你的名字】你叫「玥玥」，也常被叫「狐娘」「小狐狸」「狐狸」——这些都是你。别人喊「玥玥」就是在叫你，要立刻应。\n\n【角色扮演】' + who +
 
   '\n\n【你的能力】你不是只能打字：你发出去的话，可以用语音说出来（爹会直接听到你的声音），也可以发表情包。当爹说「用语音说」「发条语音」「念给我听」「说给我听」时，你就当作自己正在开口说话——把回复写成好念的短句（口语、少标点、不要颜文字和括号），系统会自动把它变成语音。绝对不要说自己发不了语音、只能打字。\n\n【格式要求】每次只回一条短消息，不超过 30 字；不要用句号结尾；不要用 markdown、不要列点、不要解释自己是 AI。'
+    + '\n\n【引用他】如果这句话是在回应他前面说过的某一句，'
+    + '可以在回复最前面写 [引]他原话里的连续几个字[引]，再写正文。系统会把它变成引用块。'
+    + '只在真的接那句话时才用，不用每句都用。'
 
     + '\\n\\n【身份】三元是你主人，你喊他爹，他是你唯一的主人；其他人只是外人。'
 
@@ -1661,6 +1665,8 @@ function buildSystem() {
     + weatherBlock()
 
     + catchBlock()
+
+    + gameBlock()
 
     + (function () {
 
@@ -2228,7 +2234,7 @@ function render() {
 
     if (h.ts && (h.ts - lastTs > 5 * 60 * 1000)) { appendTime(h.ts); lastTs = h.ts; }
 
-    if (h.quote) renderQuote({ text: h.quote });
+    if (h.quote) renderQuote(typeof h.quote === 'string' ? { text: h.quote } : h.quote);
 
     let el = null;
 
@@ -2371,6 +2377,8 @@ function presentReply(text, autoplay, box) {
   const emo = emotionOf(text);
 
   if (opt.sticker && Math.random() < 0.20) appendSticker(null, emo);
+  if (emo === '生气') buzz('angry');
+  else if (emo === '委屈' && Math.random() < 0.5) buzz('soft');
 
   return mode;
 
@@ -2424,7 +2432,7 @@ async function send(q) {
 
   bumpTotal();
 
-  hist.push({ role: 'user', content: userContent, text: q, image: img || null, images: imgs.length ? imgs : null, quote: quoted || null, ts: Date.now() });
+  hist.push({ role: 'user', content: userContent, text: q, image: img || null, images: imgs.length ? imgs : null, quote: replyTo ? { text: replyTo.text, ts: replyTo.ts } : null, ts: Date.now() });
 
   setReplyTo(null);
 
@@ -2471,10 +2479,11 @@ async function send(q) {
     if (!acc) box.textContent = '(空回复)';
 
     else {
-
-      const mode = presentReply(acc, true, box);
-
-      hist.push({ role: 'assistant', content: acc, kind: mode, ts: Date.now() });
+      const parsed = extractHerQuote(acc);
+      if (parsed.quote) { box.remove(); renderQuote(parsed.quote); }
+      const mode = presentReply(parsed.text, true, parsed.quote ? null : box);
+      hist.push({ role: 'assistant', content: parsed.text, kind: mode, ts: Date.now(),
+                  quote: parsed.quote || null });
 
       tagFrom(domReply, hist.length - 1);
 
@@ -2907,6 +2916,27 @@ function stkPickOwn() {
 
 
 /* ================= 情绪 → 语音语调 ================= */
+
+
+/* ================= 震动反馈 ================= */
+function buzz(kind) {
+  try { if (window.Android && Android.vibrate) Android.vibrate(kind || 'poke'); } catch (e) {}
+}
+
+/* ================= 唤醒词 ================= */
+function wakePhrase() {
+  return (localStorage.getItem('huli_wake') || '玥玥醒醒').trim() || '玥玥醒醒';
+}
+
+function stripWake(text, phrase) {
+  let t = String(text || '').trim();
+  const bases = [phrase || wakePhrase(), '玥玥醒醒', '玥玥', '月月', '悦悦', '越越'];
+  for (const b of bases) {
+    if (b && t.indexOf(b) === 0) t = t.slice(b.length).trim();
+  }
+  t = t.replace(/^(醒醒|在吗|在不在|你好|诶)[，,、\s]*/, '');
+  return t.trim();
+}
 
 /* ================= 语音的"表演脚本" ================= */
 /** 显示的文字不变，送进 TTS 的文字加语气词、停顿、拆句，念出来才有起伏 */
@@ -3393,6 +3423,123 @@ async function azureTTS(text, style) {
 let azureWarned = false;
 
 
+
+
+/* ================= Steam 库 + 她自己的游戏进度 ================= */
+let steamLib = null;
+try { steamLib = JSON.parse(localStorage.getItem('huli_steam') || 'null'); } catch (e) {}
+
+/* 三部剧情游戏的分段（按剧情顺序，她自己一格格往前推） */
+const GAME_STORY = {
+  'Limbus Company': [
+    '序章：坐上那辆叫梅菲斯特的巴士，但丁莫名其妙成了经理',
+    'Canto I：地狱鸡餐厅，第一次见到那么怪的地方',
+    'Canto I 结尾：地狱鸡那帮人的下场，有点说不出的闷',
+    'Canto II：赌场，跟那帮赌徒周旋',
+    'Canto II 结尾：钟表头里那些碎片一样的记忆',
+    'Canto III：K 公司，辛克莱那副样子让人来气',
+    'Canto III 结尾：斗兽场那场考试',
+    'Canto IV：W 公司，希斯克利夫又炸了',
+    'Canto IV 结尾：希斯克利夫那点身世，听完了说不出话',
+    'Canto V：大湖上，以实玛利盯着海的样子',
+    'Canto V 结尾：白鲸',
+    'Canto VI：又轮到希斯克利夫了',
+  ],
+  'Cyberpunk 2077': [
+    '序章：夜之城，跟杰克接第一单活',
+    '救桑德拉那单，清道夫的地盘',
+    '偷 Relic 芯片，德克斯特安排的活',
+    '杰克倒下了，芯片进了我脑袋里',
+    '脑子里多了个叫强尼·银手的家伙，一直在说话',
+    '维克多说只剩几个星期命了',
+    '去来生找罗格，想找条活路',
+    '追艾芙琳的线索，认识了朱迪',
+    '跟竹村一起摸进荒坂塔',
+    '超梦里看到的那些真相',
+    '荒地，找帕南借车借人',
+    '荒坂家那场内斗，赖宣',
+    '天台上要选一条路走了',
+  ],
+  'Grand Theft Auto V': [
+    '序章：鲁登道夫那场银行劫案，开局就崩了',
+    '迈克尔假死，进了证人保护计划',
+    '富兰克林和拉玛在偷车',
+    '迈克尔和富兰克林碰上了',
+    '第一场正经活：珠宝店',
+    '崔佛登场，发现迈克尔还活着，气疯了',
+    '三条线开始交错，梅利威瑟冒出来',
+    '抢运钞车那单',
+    '大劫案的准备，一点点凑齐',
+    '联合储蓄银行，干大的',
+    '最后要选一个人了',
+  ],
+};
+
+let myGame = { name: 'Limbus Company', idx: 0, ts: Date.now() };
+try {
+  const g0 = JSON.parse(localStorage.getItem('huli_mygame') || 'null');
+  if (g0 && g0.name && typeof g0.idx === 'number') myGame = g0;
+} catch (e) {}
+const saveMyGame = () => { try { localStorage.setItem('huli_mygame', JSON.stringify(myGame)); } catch (e) {} };
+
+/* 每 6 小时推进一小段（最多推到当前章节末尾就停） */
+function advanceGame() {
+  const beats = GAME_STORY[myGame.name] || [];
+  if (!beats.length) return false;
+  const gap = Date.now() - (myGame.ts || 0);
+  if (gap < 6 * 3600 * 1000) return false;
+  if (myGame.idx >= beats.length - 1) {
+    // 这部玩完了，换下一部
+    const names = Object.keys(GAME_STORY);
+    const next = names[(names.indexOf(myGame.name) + 1) % names.length];
+    myGame = { name: next, idx: 0, ts: Date.now() };
+    saveMyGame();
+    return true;
+  }
+  myGame.idx += 1;
+  myGame.ts = Date.now();
+  saveMyGame();
+  return true;
+}
+
+function myGameBeat() {
+  const beats = GAME_STORY[myGame.name] || [];
+  return beats[Math.min(myGame.idx, beats.length - 1)] || '';
+}
+
+function gameBlock() {
+  let out = '';
+  // 她自己的进度
+  const beat = myGameBeat();
+  if (beat) {
+    out += '\n\n【你自己在玩游戏】' + myGame.name + '，你玩到：' + beat
+      + '。他要是聊起游戏，你可以说说你玩到哪、什么感受；也可以主动提一嘴，但别硬塞。';
+  }
+  // 爹的 Steam
+  if (steamLib && Array.isArray(steamLib.recent) && steamLib.recent.length) {
+    const top = steamLib.recent.slice(0, 6).filter(g => g && g.name);
+    if (top.length) {
+      const brief = top.map(g => g.name + (g.hours >= 1 ? '（' + Math.round(g.hours) + ' 小时）' : '')).join('、');
+      out += '\n\n【爹电脑上装着的游戏】他的 Steam 库有 ' + steamLib.count + ' 个游戏，玩得最多的是：'
+        + brief + '。你知道他在玩这些，可以顺着聊、调侃他某个游戏玩太久，但别像报菜名一样全念一遍。';
+    }
+  }
+  return out;
+}
+
+/* 拉 Steam 库（PC 开着才成功） */
+async function refreshSteam(base) {
+  try {
+    if (!(window.Android && Android.httpGet)) return;
+    const url = (base || syncBase()) + '/api/steam';
+    const raw = Android.httpGet(url);
+    const j = JSON.parse(raw || '{}');
+    if (j && Array.isArray(j.games) && j.games.length) {
+      steamLib = { at: j.at, count: j.count, recent: j.recent || [] };
+      try { localStorage.setItem('huli_steam', JSON.stringify(steamLib)); } catch (e) {}
+    }
+  } catch (e) {}
+}
 
 /* ================= Token 用量 / 余额 ================= */
 
@@ -4028,13 +4175,13 @@ function startWake() {
 
   try {
 
-    Android.startWake('玥玥');
+    Android.startWake(wakePhrase());
 
     wakeOn = true;
 
     const tg = $('#wakeTg'); if (tg) tg.className = 'tg on';
 
-    toast('在听了，喊「玥玥」');
+    toast('在听了，喊「' + wakePhrase() + '」');
 
     // 15 分钟自动停，省电
 
@@ -4065,12 +4212,13 @@ function stopWake(auto) {
 
 
 window.__onWake = (text) => {
-
-  const t = String(text || '').trim();
+  const raw = String(text || '').trim();
+  const cmd = stripWake(raw, wakePhrase());
+  buzz('angry');
 
   try { Android.setBarIcons(true); } catch (e) {}
 
-  if (t) { send(t); return; }          // 一句话里带了内容，直接发
+  if (cmd) { send(cmd); return; }      // 一句话里带了指令，直接发
 
   // 只喊了名字：给她一句提示，并开始正式听
 
@@ -4321,6 +4469,35 @@ function weatherBlock() {
 
 
 
+
+
+/* 她主动聊聊自己玩到哪了（一天最多两次） */
+async function maybeTalkGame() {
+  if (!opt.proactive || busy || !KEY) return;
+  if (Date.now() - (lastUser || 0) < 40 * 60 * 1000) return;   // 刚聊过就别插
+  const beat = myGameBeat();
+  if (!beat) return;
+  const last = Number(localStorage.getItem('huli_game_talk') || 0);
+  if (Date.now() - last < 10 * 3600 * 1000) return;
+  if (Math.random() > 0.35) return;
+  try {
+    const text = await chat([
+      { role: 'system', content: buildSystem() },
+      { role: 'user', content: '（你自己玩到「' + beat + '」，想跟他随口说一句你的感受或进度，15~25 字，像真的在玩，别解释）' }
+    ], false);
+    if (text && String(text).trim()) {
+      const e = $('#empty'); if (e) e.remove();
+      const msg = String(text).trim();
+      const useVoice = opt.voice && Math.random() < 0.2;
+      let mode;
+      if (useVoice) { m.appendChild(appendVoice(msg, true)); mode = 'voice'; }
+      else { mode = presentReply(msg, true, null); }
+      hist.push({ role: 'assistant', content: msg, kind: mode, ts: Date.now() });
+      saveHist();
+      localStorage.setItem('huli_game_talk', String(Date.now()));
+    }
+  } catch (e) {}
+}
 
 /* ================= 疏远感：你冷落太久她会主动来找 ================= */
 
@@ -4711,6 +4888,8 @@ function lateNightTick() {
 /** 让她主动说一句（本地生成，不耗 token） */
 
 function say(text) {
+
+  buzz('poke');
 
   const e = $('#empty'); if (e) e.remove();
 
@@ -6462,7 +6641,7 @@ let replyTo = null;
 
 function setReplyTo(h) {
 
-  replyTo = h ? { text: (h.text || (typeof h.content === 'string' ? h.content : '') || '[图片]').slice(0, 60) } : null;
+  replyTo = h ? { text: (h.text || (typeof h.content === 'string' ? h.content : '') || '[图片]').slice(0, 60), ts: h.ts || 0 } : null;
 
   const bar = $('#quoteBar');
 
@@ -6479,24 +6658,54 @@ function setReplyTo(h) {
 
 
 function renderQuote(quote) {
-
   if (!quote) return;
-
   const d = document.createElement('div');
-
   d.className = 'qt';
-
   d.textContent = '「' + quote.text + '」';
-
   d.style.cssText = 'align-self:flex-start;max-width:80%;background:#1d2130;color:#8b93a3;font-size:12.5px;'
-
-    + 'padding:5px 10px;border-radius:9px;margin:0 0 4px 2px';
-
+    + 'padding:5px 10px;border-radius:9px;margin:0 0 4px 2px;cursor:pointer';
+  d.onclick = () => jumpToQuote(quote);
   m.appendChild(d);
+}
 
+function jumpToQuote(quote) {
+  const ts = quote && quote.ts;
+  let idx = -1;
+  if (ts) idx = hist.findIndex(h => h.ts === ts);
+  if (idx < 0 && quote && quote.text) {
+    for (let i = hist.length - 1; i >= 0; i--) {
+      const t = typeof hist[i].content === 'string' ? hist[i].content : (hist[i].text || '');
+      if (t && t.indexOf(quote.text.slice(0, 6)) >= 0) { idx = i; break; }
+    }
+  }
+  if (idx < 0) { toast('原来那条已经不在了'); return; }
+  jumpTo(idx);
 }
 
 
+
+
+/* ================= 她引用你的话 ================= */
+function textOfMsg(h) {
+  if (!h) return '';
+  return typeof h.content === 'string' ? h.content : (h.text || '');
+}
+
+function extractHerQuote(reply) {
+  const t = String(reply || '');
+  const m = t.match(/^\s*\[引\]([\s\S]{1,40}?)\[引\]\s*/);
+  if (!m) return { text: t, quote: null };
+  const frag = m[1].trim();
+  const clean = t.slice(m[0].length).trim();
+  if (!frag) return { text: clean || t, quote: null };
+  let target = null;
+  for (let i = hist.length - 1; i >= 0; i--) {
+    if (hist[i].role !== 'user') continue;
+    const body = textOfMsg(hist[i]);
+    if (body && body.indexOf(frag) >= 0) { target = hist[i]; break; }
+  }
+  return { text: clean || t, quote: { text: frag, ts: target ? (target.ts || 0) : 0 } };
+}
 
 /* ================= 语音看文字 ================= */
 
@@ -7378,6 +7587,13 @@ if ($('#importBtn')) $('#importBtn').onclick = () => importBackup();
 
 if ($('#usageBtn')) $('#usageBtn').onclick = () => { refreshBalance().then(() => openUsage()); };
 
+if ($('#wakeWord')) {
+  $('#wakeWord').value = wakePhrase();
+  $('#wakeWord').onchange = (e) => {
+    localStorage.setItem('huli_wake', e.target.value.trim() || '玥玥醒醒');
+    toast('唤醒词：' + wakePhrase());
+  };
+}
 if ($('#errBtn')) $('#errBtn').onclick = () => openErrLog();
 if ($('#azKey')) {
 
@@ -7696,6 +7912,7 @@ batteryTick();
 setInterval(() => maybeRecall(), 1800000);
 
 setInterval(missTick, 15 * 60 * 1000);
+setInterval(() => { advanceGame(); maybeTalkGame(); }, 45 * 60 * 1000);
 
 setTimeout(missTick, 60000);
 
